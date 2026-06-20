@@ -213,3 +213,47 @@
   font-family:var(--mono); font-size:.66rem; letter-spacing:.06em; text-transform:uppercase; color:var(--seal); }
 .pull-link:hover{ text-decoration:underline; }
 @media (max-width:560px){ .used-box{ justify-content:center; text-align:center; } .pull-link{ text-align:center; } }
+
+/* ============================================================
+   견학 보고서 (TAB 4)
+   ============================================================ */
+.rp-drop{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; text-align:center;
+  border:1.5px dashed var(--line-2); background:var(--paper); padding:26px; cursor:pointer; margin-top:16px;
+  font-family:var(--sans); color:var(--ink-soft); transition:.2s var(--ease); }
+.rp-drop:hover{ border-color:var(--seal); background:var(--paper-2); }
+.rp-plus{ font-family:var(--serif); font-size:1.9rem; color:var(--seal); line-height:1; }
+.rp-hint{ font-family:var(--mono); font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); }
+.rp-thumbs{ display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
+.rp-thumb{ position:relative; width:96px; height:96px; border:1px solid var(--line); overflow:hidden; background:#fff; }
+.rp-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+.rp-del{ position:absolute; top:3px; right:3px; width:22px; height:22px; border:none; border-radius:50%;
+  background:rgba(20,18,14,.72); color:#fff; cursor:pointer; font-size:.7rem; line-height:1; }
+.rp-del:hover{ background:var(--seal); }
+.rp-fields{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px 18px; margin-top:22px; }
+
+.report-sheet{ background:#fff; color:#141414; border:1px solid var(--line); margin-top:26px; padding:42px 44px; box-shadow:var(--shadow-sm); font-family:var(--sans); }
+.rs-title{ text-align:center; font-family:var(--sans); font-weight:800; font-size:1.7rem; letter-spacing:-.01em; margin:0 0 24px; padding-bottom:16px; border-bottom:2.5px solid #141414; }
+.rs-info{ width:100%; border-collapse:collapse; margin-bottom:6px; }
+.rs-info th,.rs-info td{ border:1px solid #b9b9b9; padding:9px 12px; font-size:.92rem; text-align:left; vertical-align:middle; }
+.rs-info th{ background:#f1efe9; font-weight:700; width:92px; white-space:nowrap; }
+.rs-sec{ margin-top:20px; }
+.rs-h{ font-weight:700; font-size:.96rem; padding:8px 12px; background:#141414; color:#fff; }
+.rs-body{ border:1px solid #b9b9b9; border-top:none; padding:16px; min-height:130px; white-space:pre-wrap; line-height:1.75; font-size:.95rem; }
+.rs-photos{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; border:1px solid #b9b9b9; border-top:none; padding:12px; }
+.rs-ph{ margin:0; } .rs-ph img{ width:100%; height:auto; display:block; border:1px solid #ddd; }
+.rs-sign{ display:flex; justify-content:space-between; align-items:center; margin-top:32px; font-size:.95rem; }
+.rs-sign .rs-by{ font-weight:600; }
+
+@media (max-width:680px){ .rp-fields{ grid-template-columns:1fr 1fr; } .report-sheet{ padding:26px 18px; } .rs-photos{ grid-template-columns:1fr; } }
+
+/* PRINT — 보고서만, 흰 배경 A4 */
+@media print{
+  @page{ size:A4; margin:13mm; }
+  html,body{ background:#fff !important; }
+  .ms-hero, .tabs, .ms-foot, .no-print, #tab-leave, #tab-cal, #tab-meal{ display:none !important; }
+  .wrap-page{ max-width:none !important; margin:0 !important; padding:0 !important; }
+  #tab-report{ display:block !important; margin:0 !important; }
+  .report-sheet{ border:none !important; box-shadow:none !important; margin:0 !important; padding:0 !important; }
+  .rs-title{ font-size:18pt; }
+  .rs-ph, .rs-sec, .rs-info tr{ break-inside:avoid; }
+}

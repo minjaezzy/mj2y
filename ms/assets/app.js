@@ -20,6 +20,7 @@ const DEFAULTS = () => ({
   ],
   entries: [],          // 달력 일정 {id, start, end, text}
   meals:  {},           // 'YYYY-MM-DD' -> {b,l,d}
+  report: { title:'전쟁기념관 견학 보고서', place:'전쟁기념관', date:todayISO(), unit:'', rank:'', name:'', serviceNo:'', reflection:'', photos:[] },
   ui: { month:isoMonth(new Date()), mealDate:todayISO(), xout:true, tab:'leave' }
 });
 
@@ -31,6 +32,7 @@ function migrate(v){
   v.entitlements = v.entitlements||d.entitlements;
   v.entitlements.forEach(e=>{ if(e.type==='monthly'&&e.months===undefined) e.months=null; });
   v.meals = v.meals||{};
+  v.report = Object.assign(d.report, v.report||{}); v.report.photos = v.report.photos||[];
   // 사용 일수: 예전 기록(status 'used')이 있으면 그 합으로 초기화
   if(typeof v.used!=='number'){
     v.used = (v.leaves||[]).filter(l=>l.status==='used').reduce((s,l)=>s+daysInclusive(l.start,l.end),0);
@@ -300,6 +302,66 @@ function queueMeal(date,k,v){ const m=S.meals[date]||(S.meals[date]={b:'',l:'',d
 function shiftMeal(n){ S.ui.mealDate=isoDate(addDays(parseISO(S.ui.mealDate||todayISO()),n)); save(); renderMeals(); }
 
 /* =====================================================================
+   TAB 4 — 견학 보고서 (사진 올리고 인쇄)
+   ===================================================================== */
+function fmtDateKo(s){ const d=parseISO(s); return d?`${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${WD[d.getDay()]})`:''; }
+
+function renderReport(){
+  const root=$('#tab-report'); if(!root) return; const r=S.report; root.innerHTML='';
+  const edit=el('section',{class:'report-edit no-print'},
+    el('div',{class:'block-head'},
+      el('div',null, el('div',{class:'bh-t'},'견학 보고서 만들기'),
+        el('p',{class:'block-note'},'사진을 올리고 빈칸을 채우면 아래 보고서가 완성돼요. 인쇄하거나 PDF로 저장해서 제출하세요.')),
+      el('button',{class:'btn fill', onclick:()=>window.print()},'🖨  인쇄 / PDF 저장')),
+    el('label',{class:'rp-drop'},
+      el('input',{type:'file', accept:'image/*', multiple:'multiple', style:'display:none', onchange:onPhotos}),
+      el('span',{class:'rp-plus'},'＋'), el('span',null,'견학 인증 사진 올리기'),
+      el('span',{class:'rp-hint'},'여러 장 가능 · 휴대폰 사진 그대로 OK')),
+    el('div',{class:'rp-thumbs'}, ...r.photos.map((src,i)=>
+      el('div',{class:'rp-thumb'}, el('img',{src}), el('button',{class:'rp-del', title:'삭제', onclick:()=>{ r.photos.splice(i,1); saveReport(); renderReport(); }},'✕')))),
+    el('div',{class:'rp-fields'},
+      rfield('제목','title'), rfield('견학 장소','place'), rfield('견학 일시','date','date'),
+      rfield('소속 (부대)','unit'), rfield('계급','rank'), rfield('성명','name'), rfield('군번','serviceNo')),
+    el('label',{class:'field', style:'margin-top:12px'}, el('span',{class:'field-label'},'소감 / 느낀 점'),
+      el('textarea',{rows:'5', placeholder:'견학하며 느낀 점을 적어주세요…', oninput:ev=>{ r.reflection=ev.target.value; updatePreview(); saveReportDebounced(); }}, r.reflection)));
+  root.append(edit, buildReportSheet());
+}
+function rfield(label,key,type){ return el('label',{class:'field'}, el('span',{class:'field-label'},label),
+  el('input',{type:type||'text', value:S.report[key]||'', oninput:ev=>{ S.report[key]=ev.target.value; updatePreview(); saveReportDebounced(); }})); }
+
+function buildReportSheet(){
+  const r=S.report, dateStr=fmtDateKo(r.date);
+  return el('div',{class:'report-sheet', id:'report-sheet'},
+    el('h1',{class:'rs-title'}, r.title||'견학 보고서'),
+    el('table',{class:'rs-info'}, el('tbody',null,
+      infoRow('소속', r.unit, '계급', r.rank),
+      infoRow('성명', r.name, '군번', r.serviceNo),
+      infoRow('견학 장소', r.place, '견학 일시', dateStr))),
+    el('div',{class:'rs-sec'}, el('div',{class:'rs-h'},'소감 및 느낀 점'),
+      el('div',{class:'rs-body'}, r.reflection ? r.reflection : ' ')),
+    r.photos.length ? el('div',{class:'rs-sec rs-photo-sec'}, el('div',{class:'rs-h'},'붙임 · 견학 사진'),
+      el('div',{class:'rs-photos'}, ...r.photos.map(src=>el('figure',{class:'rs-ph'}, el('img',{src}))))) : null,
+    el('div',{class:'rs-sign'},
+      el('span',{class:'rs-date'}, dateStr || '20  .   .   .'),
+      el('span',{class:'rs-by'}, '작성자  '+(r.name||'____________')+'  (서명/인)')));
+}
+function infoRow(l1,v1,l2,v2){ return el('tr',null,
+  el('th',null,l1), el('td',null, v1||' '), el('th',null,l2), el('td',null, v2||' ')); }
+function updatePreview(){ const old=$('#report-sheet'); if(old) old.replaceWith(buildReportSheet()); }
+
+function resizeImage(file, max=1280, q=0.82){ return new Promise(res=>{
+  const img=new Image(); img.onload=()=>{ let w=img.width,h=img.height;
+    if(w>max||h>max){ if(w>=h){ h=Math.round(h*max/w); w=max; } else { w=Math.round(w*max/h); h=max; } }
+    const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+    try{ res(c.toDataURL('image/jpeg',q)); }catch(e){ res(null); } URL.revokeObjectURL(img.src); };
+  img.onerror=()=>res(null); img.src=URL.createObjectURL(file); }); }
+async function onPhotos(ev){ const files=[...ev.target.files]; ev.target.value='';
+  for(const f of files){ const d=await resizeImage(f); if(d) S.report.photos.push(d); }
+  saveReport(); renderReport(); }
+function saveReport(){ try{ save(); }catch(e){ alert('사진 용량이 커서 일부는 저장되지 않았어요(이번 인쇄에는 보여요). 사진 수를 줄이면 다음에도 남아요.'); } }
+let _rT; function saveReportDebounced(){ clearTimeout(_rT); _rT=setTimeout(saveReport,500); }
+
+/* =====================================================================
    PROFILE / MODAL / TABS / BOOT
    ===================================================================== */
 function openProfile(){
@@ -334,7 +396,7 @@ function escClose(e){ if(e.key==='Escape') closeModal(); }
 function switchTab(name){
   $$('.tab').forEach(t=>t.setAttribute('aria-selected', String(t.dataset.tab===name)));
   $$('.tab-panel').forEach(pp=>pp.classList.toggle('hidden', pp.id!=='tab-'+name));
-  if(name==='leave') renderLeave(); if(name==='cal') renderCalendar(); if(name==='meal') renderMeals();
+  if(name==='leave') renderLeave(); if(name==='cal') renderCalendar(); if(name==='meal') renderMeals(); if(name==='report') renderReport();
   S.ui.tab=name; save();
 }
 function boot(){
