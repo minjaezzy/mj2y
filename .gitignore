@@ -1,0 +1,15 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# node (없지만 혹시 도구 추가 시)
+node_modules/
+npm-debug.log*
+
+# 임시
+*.tmp
+*.bak
+out/
