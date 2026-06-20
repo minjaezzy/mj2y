@@ -14,10 +14,12 @@
   min-width:180px; padding-top:6px; }
 .dday-zone .rays{ top:-26px; left:50%; transform:translateX(-50%); }
 .dday-seal{ position:relative; z-index:1; background:transparent; border:none; cursor:pointer; }
-.dday-seal .seal{ width:122px; height:122px; box-shadow:0 10px 30px rgba(223,63,39,.18); background:var(--paper); }
-.dday-seal .seal .s-dow{ font-size:.6rem; }
-.dday-seal .seal .s-num{ font-family:var(--serif); font-weight:400; font-size:2.5rem; letter-spacing:-.02em; }
-.dday-seal .seal .s-mon{ font-size:.56rem; }
+.dday-seal .seal{ width:118px; height:118px; background:var(--paper); box-shadow:var(--shadow-sm);
+  border-color:var(--line-2); color:var(--ink); }
+.dday-seal .seal::before{ border-color:var(--line-2); opacity:.5; }
+.dday-seal .seal .s-dow{ font-size:.6rem; color:var(--ink-faint); }
+.dday-seal .seal .s-num{ font-family:var(--serif); font-weight:400; font-size:2.4rem; letter-spacing:-.02em; color:var(--ink); }
+.dday-seal .seal .s-mon{ font-size:.56rem; color:var(--ink-faint); }
 .dday-cap{ font-family:var(--mono); font-size:.62rem; letter-spacing:.14em; text-transform:uppercase;
   color:var(--ink-soft); margin-top:12px; text-align:center; }
 .serve{ width:170px; margin-top:12px; }
@@ -257,3 +259,8 @@
   .rs-title{ font-size:18pt; }
   .rs-ph, .rs-sec, .rs-info tr{ break-inside:avoid; }
 }
+
+/* 복무 정보 — 자동 전역일 표시 */
+.pf-result{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:8px;
+  padding:11px 14px; background:var(--paper-2); border:1px solid var(--line); }
+.pf-result strong{ font-family:var(--serif); font-weight:500; font-size:1.05rem; color:var(--ink); }

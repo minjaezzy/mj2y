@@ -20,15 +20,17 @@ body.lang-ko .tl-org{ font-style:normal; }
 
 /* ---- sticky pill nav ------------------------------------- */
 .pf-nav{ position:fixed; top:18px; left:50%; transform:translateX(-50%); z-index:60;
-  display:flex; align-items:center; gap:4px; padding:7px 8px 7px 18px;
+  display:flex; align-items:center; gap:4px; padding:7px 8px 7px 18px; flex-wrap:nowrap; white-space:nowrap;
+  max-width:calc(100vw - 24px);
   background:rgba(20,19,16,.92); color:#f3efe6; border-radius:40px; box-shadow:var(--shadow-sm); backdrop-filter:blur(8px); }
-.pf-nav .nm{ font-family:var(--grotesk); font-weight:800; font-size:.92rem; letter-spacing:-.01em; margin-right:12px; }
+.pf-nav .nm{ font-family:var(--grotesk); font-weight:800; font-size:.92rem; letter-spacing:-.01em; margin-right:12px; flex:none; white-space:nowrap; }
 .pf-nav .nm b{ color:var(--seal); }
+.pf-nav .links{ display:flex; align-items:center; gap:2px; flex:none; }
 .pf-nav a{ font-family:var(--mono); font-size:.64rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(243,239,230,.7);
   padding:7px 11px; border-radius:30px; transition:.2s var(--ease); }
 .pf-nav a:hover,.pf-nav a.on{ color:#141310; background:var(--hi); }
 .pf-nav .burger{ display:none; }
-.pf-nav .nav-actions{ display:flex; align-items:center; gap:5px; margin-left:8px; padding-left:8px; border-left:1px solid rgba(243,239,230,.18); }
+.pf-nav .nav-actions{ display:flex; align-items:center; gap:5px; margin-left:8px; padding-left:8px; border-left:1px solid rgba(243,239,230,.18); flex:none; }
 .pf-nav .nav-btn{ font-family:var(--mono); font-size:.62rem; letter-spacing:.1em; text-transform:uppercase; cursor:pointer;
   color:#141310; background:#f3efe6; padding:7px 12px; border-radius:30px; border:none; transition:.2s var(--ease); white-space:nowrap; }
 .pf-nav .nav-btn:hover{ background:var(--hi); }
@@ -181,15 +183,19 @@ body.lang-ko .tl-org{ font-style:normal; }
 @media (prefers-reduced-motion:reduce){ .rev{ opacity:1; transform:none; } .marquee .track{ animation:none; } }
 
 /* ---- responsive ------------------------------------------ */
+/* nav collapses to burger before it gets cramped / collides with corner meta */
+@media (max-width:940px){
+  .pf-nav{ left:12px; right:12px; transform:none; justify-content:space-between; padding:8px 10px 8px 16px; max-width:none; }
+  .pf-nav .links{ display:none; }
+  .pf-nav .burger{ display:inline-flex; background:none; border:none; color:#f3efe6; font-size:1.15rem; cursor:pointer; }
+  .pf-hero .row-meta{ display:none; }
+}
 @media (max-width:900px){
   .about-grid{ grid-template-columns:1fr; gap:30px; }
   .feat{ grid-template-columns:1fr; }
   .side-label{ display:none; }
 }
 @media (max-width:680px){
-  .pf-nav{ left:12px; right:12px; transform:none; justify-content:space-between; padding:8px 10px 8px 16px; }
-  .pf-nav .links{ display:none; }
-  .pf-nav .burger{ display:inline-flex; background:none; border:none; color:#f3efe6; font-size:1.1rem; cursor:pointer; }
   .pf-hero{ min-height:auto; padding:120px 0 40px; }
   .tl-row{ grid-template-columns:1fr; gap:6px; }
   .wrow{ grid-template-columns:auto 1fr; gap:10px; } .wtags{ display:none; } .warrow{ display:none; }

@@ -8,7 +8,7 @@
 /* ---------- storage ---------------------------------------- */
 const KEY = 'mj2y.ms.v1';
 const DEFAULTS = () => ({
-  profile: { enlist:'', discharge:'' },
+  profile: { enlist:'', serviceMonths:18, discharge:'' },   // 전역일은 입대일+복무기간으로 자동 계산
   used: 0,                                  // 사용한 휴가 일수 (직접 입력)
   entitlements: [
     { id:uid(), name:'연가',                 type:'fixed',   days:24, on:true },
@@ -29,6 +29,7 @@ function load(){ try{ const v=JSON.parse(localStorage.getItem(KEY)); if(v) retur
 function migrate(v){
   const d=DEFAULTS();
   v.profile = v.profile||{}; v.ui=Object.assign(d.ui,v.ui||{});
+  if(v.profile.serviceMonths===undefined) v.profile.serviceMonths = v.profile.discharge ? null : 18;
   v.entitlements = v.entitlements||d.entitlements;
   v.entitlements.forEach(e=>{ if(e.type==='monthly'&&e.months===undefined) e.months=null; });
   v.meals = v.meals||{};
@@ -55,6 +56,7 @@ function isoMonth(d){ return `${d.getFullYear()}-${p2(d.getMonth()+1)}`; }
 function p2(n){ return String(n).padStart(2,'0'); }
 function parseISO(s){ if(!s) return null; const [y,m,d]=s.split('-').map(Number); return new Date(y,(m||1)-1,d||1); }
 function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function addMonths(d,n){ const x=new Date(d); const day=x.getDate(); x.setMonth(x.getMonth()+n); if(x.getDate()<day) x.setDate(0); return x; }
 function dayDiff(a,b){ return Math.round((parseISO(b)-parseISO(a))/864e5); }   // b - a
 function daysInclusive(a,b){ const n=dayDiff(a,b); return isNaN(n)?0:n+1; }
 function monthsBetween(a,b){ const A=parseISO(a),B=parseISO(b); if(!A||!B||B<A) return 0;
@@ -78,12 +80,14 @@ function sealParts(iso){ const d=parseISO(iso); return { dow:WD[d.getDay()], num
 /* =====================================================================
    복무 계산
    ===================================================================== */
-function monthsServedTotal(){ return monthsBetween(S.profile.enlist, S.profile.discharge); }
+function getDischarge(){ const p=S.profile; if(p.serviceMonths==null) return p.discharge||''; if(!p.enlist) return '';
+  return isoDate(addDays(addMonths(parseISO(p.enlist), Number(p.serviceMonths)||18), -1)); }
+function monthsServedTotal(){ return monthsBetween(S.profile.enlist, getDischarge()); }
 function effMonths(e){ return (e.months!=null && e.months!=='') ? Number(e.months) : monthsServedTotal(); }
 function entDays(e){ if(!e.on) return 0; if(e.type==='monthly') return (Number(e.perMonth)||0)*effMonths(e); return Number(e.days)||0; }
 function totalGranted(){ return S.entitlements.reduce((s,e)=>s+entDays(e),0); }
-function dday(){ if(!S.profile.discharge) return null; return dayDiff(todayISO(), S.profile.discharge); }
-function serviceDays(){ if(!S.profile.enlist||!S.profile.discharge) return null; return dayDiff(S.profile.enlist,S.profile.discharge); }
+function dday(){ const dis=getDischarge(); if(!dis) return null; return dayDiff(todayISO(), dis); }
+function serviceDays(){ const dis=getDischarge(); if(!S.profile.enlist||!dis) return null; return dayDiff(S.profile.enlist,dis); }
 function servedDays(){ if(!S.profile.enlist) return null; return Math.max(0, dayDiff(S.profile.enlist, todayISO())); }
 function servePct(){ const tot=serviceDays(); if(!tot||tot<=0) return 0; return Math.max(0,Math.min(100, Math.round(servedDays()/tot*100))); }
 
@@ -93,11 +97,10 @@ function servePct(){ const tot=serviceDays(); if(!tot||tot<=0) return 0; return 
 function renderHeader(){
   const d=dday(), zone=$('#dday-zone'); if(!zone) return;
   let top,mid,bot;
-  if(d==null){ top='—'; mid='D-?'; bot='전역일 입력'; }
-  else { top=fmtDot(S.profile.discharge); mid = d>0?`D-${d}`:d===0?'D-DAY':`D+${-d}`; bot = d>0?'전역까지':d===0?'오늘 전역':'전역 완료'; }
+  if(d==null){ top='—'; mid='D-?'; bot='입대일 입력'; }
+  else { top=fmtDot(getDischarge()); mid = d>0?`D-${d}`:d===0?'D-DAY':`D+${-d}`; bot = d>0?'전역까지':d===0?'오늘 전역':'전역 완료'; }
   zone.innerHTML='';
   zone.append(
-    el('div',{class:'rays'}),
     el('button',{class:'dday-seal','aria-label':'복무 정보', onclick:openProfile},
       el('span',{class:'seal'}, el('span',{class:'s-dow'},top),
         el('span',{class:'s-num', style:'font-size:'+(mid.length>4?'1.7rem':'2.1rem')}, mid),
@@ -203,7 +206,7 @@ function addEnt(){ S.entitlements.push({id:uid(),name:'새 휴가',type:'fixed',
 function renderCalendar(){
   const root=$('#tab-cal'); if(!root) return;
   const [y,m]=S.ui.month.split('-').map(Number);
-  const startDow=new Date(y,m-1,1).getDay(), dim=new Date(y,m,0).getDate(), today=todayISO();
+  const startDow=new Date(y,m-1,1).getDay(), dim=new Date(y,m,0).getDate(), today=todayISO(), disc=getDischarge();
   root.innerHTML='';
 
   const head=el('div',{class:'cal-head'},
@@ -221,11 +224,11 @@ function renderCalendar(){
     const iso=`${y}-${p2(m)}-${p2(dnum)}`, dow=new Date(y,m-1,dnum).getDay();
     const cell=el('div',{class:'cal-cell'+(dow===0?' sun':dow===6?' sat':''), 'data-date':iso, role:'button', tabindex:'0'});
     if(iso===today) cell.classList.add('today');
-    if(S.profile.discharge===iso) cell.classList.add('discharge');
+    if(disc===iso) cell.classList.add('discharge');
     if(S.ui.xout&&S.profile.enlist&&iso<today&&iso>=S.profile.enlist) cell.classList.add('xout');
     cell.append(el('div',null, el('span',{class:'cell-num'}, String(dnum)),
       iso===today?el('span',{class:'today-tag'},'오늘'):null,
-      S.profile.discharge===iso?el('span',{class:'dis-tag'},'전역'):null));
+      disc===iso?el('span',{class:'dis-tag'},'전역'):null));
     const covers=S.entries.filter(en=>iso>=en.start&&iso<=en.end);
     covers.slice(0,3).forEach(en=>{ const isStart=iso===en.start||dow===0;
       const band=el('div',{class:'cell-band', onclick:ev=>{ ev.stopPropagation(); openEntry(en); }}, isStart?el('span',{class:'band-lbl'}, en.text):'');
@@ -366,15 +369,27 @@ let _rT; function saveReportDebounced(){ clearTimeout(_rT); _rT=setTimeout(saveR
    ===================================================================== */
 function openProfile(){
   const p=S.profile;
+  const cur = p.serviceMonths==null ? 'custom' : String(p.serviceMonths||18);
+  const presets=[['18','육군·해병 18개월'],['20','해군 20개월'],['21','공군 21개월'],['custom','직접 지정']];
+  const calcDis=()=>{ const en=$('#pf-enlist').value, m=$('#pf-months').value;
+    if(m==='custom') return $('#pf-discharge') ? $('#pf-discharge').value : '';
+    if(!en) return ''; return isoDate(addDays(addMonths(parseISO(en), Number(m)), -1)); };
+  const refresh=()=>{ const isC=$('#pf-months').value==='custom';
+    $('#pf-custom').classList.toggle('hidden', !isC);
+    const dis=calcDis(); $('#pf-dis-out').textContent = dis ? fmtDateKo(dis) : '입대일을 넣어주세요'; };
   const body=el('div',{class:'col gap-sm'},
-    el('p',{class:'block-note', style:'margin:0 0 6px'},'입대일·전역일을 넣으면 D-day · 복무 진행률 · 월 적립 휴가가 자동으로 채워져요.'),
-    el('div',{class:'row gap-sm'},
-      field('입대일', el('input',{type:'date', id:'pf-enlist', value:p.enlist})),
-      field('전역일', el('input',{type:'date', id:'pf-discharge', value:p.discharge}))));
+    el('p',{class:'block-note', style:'margin:0 0 6px'},'입대일과 복무 기간만 넣으면 전역일은 자동으로 계산돼요.'),
+    field('입대일', el('input',{type:'date', id:'pf-enlist', value:p.enlist, oninput:()=>refresh()})),
+    field('복무 기간', el('select',{id:'pf-months', onchange:()=>refresh()}, ...presets.map(([v,l])=>el('option',{value:v, ...(cur===v?{selected:'selected'}:{})}, l)))),
+    el('div',{id:'pf-custom', class:'field'+(cur==='custom'?'':' hidden')}, el('span',{class:'field-label'},'전역일 (직접 지정)'),
+      el('input',{type:'date', id:'pf-discharge', value:p.discharge, oninput:()=>refresh()})),
+    el('div',{class:'pf-result'}, el('span',{class:'field-label'},'전역일 (자동 계산)'), el('strong',{id:'pf-dis-out'},'—')));
   modal('복무 정보', body, [
-    {label:'저장', cls:'btn fill', on:()=>{ S.profile={ enlist:$('#pf-enlist').value, discharge:$('#pf-discharge').value };
+    {label:'저장', cls:'btn fill', on:()=>{ const m=$('#pf-months').value;
+      S.profile={ enlist:$('#pf-enlist').value, serviceMonths: m==='custom'?null:Number(m), discharge: m==='custom'?($('#pf-discharge').value||''):'' };
       save(); renderHeader(); renderLeave(); renderCalendar(); return true; }}
   ]);
+  setTimeout(refresh, 10);
 }
 
 let _modal=null;
