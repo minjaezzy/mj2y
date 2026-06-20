@@ -1,6 +1,6 @@
 /* ============================================================
-   ms.mj2y.com — 군 생활 메이트  (v2 editorial)
-   휴가 계산기 · 달력 · 수방사 급식 — vanilla JS · localStorage
+   ms.mj2y.com — 군 생활 메이트  (v3)
+   휴가 계산기 · 달력 · 급식 — vanilla JS · localStorage
    ============================================================ */
 (() => {
 'use strict';
@@ -8,24 +8,41 @@
 /* ---------- storage ---------------------------------------- */
 const KEY = 'mj2y.ms.v1';
 const DEFAULTS = () => ({
-  profile: { name:'', unit:'', enlist:'', discharge:'' },
+  profile: { enlist:'', discharge:'' },
+  used: 0,                                  // 사용한 휴가 일수 (직접 입력)
   entitlements: [
-    { id:uid(), name:'연가',                 type:'fixed',   days:24, on:true, cat:'연가' },
-    { id:uid(), name:'상황병 보상휴가',        type:'monthly', perMonth:1, on:true, cat:'포상' },
-    { id:uid(), name:'신병위로외박',          type:'fixed',   days:4,  on:true, cat:'외박' },
-    { id:uid(), name:'구직휴가',              type:'fixed',   days:2,  on:true, cat:'청원' },
-    { id:uid(), name:'시설방문(서대문형무소 등)', type:'fixed', days:1,  on:true, cat:'공가' },
-    { id:uid(), name:'위로휴가',              type:'fixed',   days:0,  on:true, cat:'위로' },
+    { id:uid(), name:'연가',                 type:'fixed',   days:24, on:true },
+    { id:uid(), name:'상황병 보상휴가',        type:'monthly', perMonth:1, months:null, on:true },
+    { id:uid(), name:'신병위로외박',          type:'fixed',   days:4,  on:true },
+    { id:uid(), name:'구직휴가',              type:'fixed',   days:2,  on:true },
+    { id:uid(), name:'시설방문 휴가',          type:'fixed',   days:1,  on:true },
+    { id:uid(), name:'위로휴가',              type:'fixed',   days:0,  on:true },
   ],
-  leaves: [],
-  plans:  {},
-  meals:  {},
-  ui: { month:isoMonth(new Date()), mealDate:todayISO(), xout:true, lfilter:'all', tab:'leave' }
+  entries: [],          // 달력 일정 {id, start, end, text}
+  meals:  {},           // 'YYYY-MM-DD' -> {b,l,d}
+  ui: { month:isoMonth(new Date()), mealDate:todayISO(), xout:true, tab:'leave' }
 });
 
 let S = load();
-function load(){ try{ const v=JSON.parse(localStorage.getItem(KEY)); if(v&&v.profile) return migrate(v); }catch(e){} return DEFAULTS(); }
-function migrate(v){ const d=DEFAULTS(); v.ui=Object.assign(d.ui,v.ui||{}); v.plans=v.plans||{}; v.meals=v.meals||{}; v.leaves=v.leaves||[]; return v; }
+function load(){ try{ const v=JSON.parse(localStorage.getItem(KEY)); if(v) return migrate(v); }catch(e){} return DEFAULTS(); }
+function migrate(v){
+  const d=DEFAULTS();
+  v.profile = v.profile||{}; v.ui=Object.assign(d.ui,v.ui||{});
+  v.entitlements = v.entitlements||d.entitlements;
+  v.entitlements.forEach(e=>{ if(e.type==='monthly'&&e.months===undefined) e.months=null; });
+  v.meals = v.meals||{};
+  // 사용 일수: 예전 기록(status 'used')이 있으면 그 합으로 초기화
+  if(typeof v.used!=='number'){
+    v.used = (v.leaves||[]).filter(l=>l.status==='used').reduce((s,l)=>s+daysInclusive(l.start,l.end),0);
+  }
+  // 달력 일정: 예전 leaves + plans 를 entries 로 통합
+  if(!v.entries){
+    v.entries = (v.leaves||[]).map(l=>({ id:l.id||uid(), start:l.start, end:l.end, text:l.text||l.label||l.cat||'일정' }));
+    if(v.plans) for(const date in v.plans) v.entries.push({ id:uid(), start:date, end:date, text:v.plans[date] });
+  }
+  delete v.leaves; delete v.plans;
+  return v;
+}
 function save(){ localStorage.setItem(KEY, JSON.stringify(S)); }
 function uid(){ return Math.random().toString(36).slice(2,9); }
 
@@ -36,16 +53,15 @@ function isoMonth(d){ return `${d.getFullYear()}-${p2(d.getMonth()+1)}`; }
 function p2(n){ return String(n).padStart(2,'0'); }
 function parseISO(s){ if(!s) return null; const [y,m,d]=s.split('-').map(Number); return new Date(y,(m||1)-1,d||1); }
 function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
-function daysInclusive(a,b){ const A=parseISO(a),B=parseISO(b); if(!A||!B) return 0; return Math.round((B-A)/864e5)+1; }
+function dayDiff(a,b){ return Math.round((parseISO(b)-parseISO(a))/864e5); }   // b - a
+function daysInclusive(a,b){ const n=dayDiff(a,b); return isNaN(n)?0:n+1; }
 function monthsBetween(a,b){ const A=parseISO(a),B=parseISO(b); if(!A||!B||B<A) return 0;
   let m=(B.getFullYear()-A.getFullYear())*12+(B.getMonth()-A.getMonth()); if(B.getDate()<A.getDate()) m--; return Math.max(0,m); }
 const WD = ['일','월','화','수','목','금','토'];
 const MON = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 const fmtKo = s => { const d=parseISO(s); return d?`${d.getMonth()+1}.${d.getDate()}(${WD[d.getDay()]})`:''; };
 const fmtShort = s => { const d=parseISO(s); return d?`${d.getMonth()+1}.${d.getDate()}`:''; };
-
-/* ---------- categories ------------------------------------- */
-const CAT_LIST = ['연가','포상','위로','외박','청원','공가','기타'];
+const fmtDot = s => s ? s.replace(/-/g,'.') : '';
 
 /* ---------- DOM helpers ------------------------------------ */
 const $  = (s,r=document)=>r.querySelector(s);
@@ -55,43 +71,36 @@ const el = (t,a,...kids)=>{ const n=document.createElement(t); a=a||{};
     else if(k.startsWith('on'))n.addEventListener(k.slice(2),a[k]); else n.setAttribute(k,a[k]); }
   kids.flat().forEach(c=>c!=null&&c!==false&&n.append(c.nodeType?c:document.createTextNode(c))); return n; };
 const esc = s => (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-
 function sealParts(iso){ const d=parseISO(iso); return { dow:WD[d.getDay()], num:d.getDate(), mon:`${MON[d.getMonth()]} '${String(d.getFullYear()).slice(2)}` }; }
-function sealEl(iso, cls){ const s=sealParts(iso);
-  return el('span',{class:'seal '+(cls||'')}, el('span',{class:'s-dow'},s.dow), el('span',{class:'s-num'},String(s.num)), el('span',{class:'s-mon'},s.mon)); }
 
 /* =====================================================================
-   MATH
+   복무 계산
    ===================================================================== */
 function monthsServedTotal(){ return monthsBetween(S.profile.enlist, S.profile.discharge); }
-function monthsServedToDate(){ const t=todayISO(); const cap=S.profile.discharge&&t>S.profile.discharge?S.profile.discharge:t; return monthsBetween(S.profile.enlist,cap); }
-function entDays(e,toDate){ if(!e.on) return 0; if(e.type==='monthly'){ const m=toDate?monthsServedToDate():monthsServedTotal(); return (e.perMonth||0)*m; } return Number(e.days)||0; }
-function totalGranted(toDate){ return S.entitlements.reduce((s,e)=>s+entDays(e,toDate),0); }
-function usedDays(status){ return S.leaves.filter(l=>l.status===status).reduce((s,l)=>s+daysInclusive(l.start,l.end),0); }
-function dday(){ if(!S.profile.discharge) return null; return Math.round((parseISO(S.profile.discharge)-parseISO(todayISO()))/864e5); }
-function servePct(){ if(!S.profile.enlist||!S.profile.discharge) return 0; const a=parseISO(S.profile.enlist),b=parseISO(S.profile.discharge),n=parseISO(todayISO()); return Math.max(0,Math.min(100,Math.round((n-a)/(b-a)*100))); }
+function effMonths(e){ return (e.months!=null && e.months!=='') ? Number(e.months) : monthsServedTotal(); }
+function entDays(e){ if(!e.on) return 0; if(e.type==='monthly') return (Number(e.perMonth)||0)*effMonths(e); return Number(e.days)||0; }
+function totalGranted(){ return S.entitlements.reduce((s,e)=>s+entDays(e),0); }
+function dday(){ if(!S.profile.discharge) return null; return dayDiff(todayISO(), S.profile.discharge); }
+function serviceDays(){ if(!S.profile.enlist||!S.profile.discharge) return null; return dayDiff(S.profile.enlist,S.profile.discharge); }
+function servedDays(){ if(!S.profile.enlist) return null; return Math.max(0, dayDiff(S.profile.enlist, todayISO())); }
+function servePct(){ const tot=serviceDays(); if(!tot||tot<=0) return 0; return Math.max(0,Math.min(100, Math.round(servedDays()/tot*100))); }
 
 /* =====================================================================
-   HEADER / D-DAY SEAL
+   HEADER — D-day seal
    ===================================================================== */
 function renderHeader(){
-  const d=dday(), disc=S.profile.discharge, zone=$('#dday-zone'); if(!zone) return;
+  const d=dday(), zone=$('#dday-zone'); if(!zone) return;
   let top,mid,bot;
-  if(d==null){ top='—'; mid='D-?'; bot='입대일 입력'; }
-  else { top = disc?disc.replace(/-/g,'.'):''; mid = d>0?`D-${d}`:d===0?'D-DAY':`D+${-d}`; bot = d>0?'전역까지':d===0?'오늘 전역':'전역 완료'; }
+  if(d==null){ top='—'; mid='D-?'; bot='전역일 입력'; }
+  else { top=fmtDot(S.profile.discharge); mid = d>0?`D-${d}`:d===0?'D-DAY':`D+${-d}`; bot = d>0?'전역까지':d===0?'오늘 전역':'전역 완료'; }
   zone.innerHTML='';
   zone.append(
     el('div',{class:'rays'}),
-    el('button',{class:'dday-seal','aria-label':'복무 정보 입력', onclick:openProfile},
-      el('span',{class:'seal'},
-        el('span',{class:'s-dow'},top),
+    el('button',{class:'dday-seal','aria-label':'복무 정보', onclick:openProfile},
+      el('span',{class:'seal'}, el('span',{class:'s-dow'},top),
         el('span',{class:'s-num', style:'font-size:'+(mid.length>4?'1.7rem':'2.1rem')}, mid),
-        el('span',{class:'s-mon'},bot))),
-    (disc&&S.profile.enlist)? el('div',{class:'serve'},
-      el('div',{class:'serve-track'}, el('div',{class:'serve-fill', id:'serve-fill'})),
-      el('div',{class:'serve-meta'}, el('span',null,S.profile.unit||'복무 진행'), el('span',{id:'serve-pct'},'0%'))) : null
+        el('span',{class:'s-mon'},bot)))
   );
-  if(disc&&S.profile.enlist){ const pct=servePct(); const f=$('#serve-fill'); if(f) f.style.width=pct+'%'; const pe=$('#serve-pct'); if(pe) pe.textContent=pct+'%'; }
 }
 
 /* =====================================================================
@@ -99,133 +108,95 @@ function renderHeader(){
    ===================================================================== */
 function renderLeave(){
   const root=$('#tab-leave'); if(!root) return;
-  const granted=totalGranted(false), grantedNow=totalGranted(true);
-  const used=usedDays('used'), planned=usedDays('planned');
-  const remain=granted-used, remainAfter=remain-planned;
+  const granted=totalGranted(), used=Number(S.used)||0, remain=granted-used;
   root.innerHTML='';
 
   // scoreboard
   root.append(el('div',{class:'stat-band'},
-    stat('총 부여', granted, S.profile.enlist?`현재까지 ${grantedNow}일 적립`:'복무기간 기준'),
-    stat('사용', used, `${S.leaves.filter(l=>l.status==='used').length}건 다녀옴`),
-    stat('잔여', remain, planned?`예정 빼면 ${remainAfter}일`:'남은 휴가', true)
+    stat('총 부여', granted, '받을 수 있는 휴가 합계'),
+    stat('사용', used, '직접 입력'),
+    stat('잔여', remain, '남은 휴가', true)
   ));
 
-  // entitlements
-  const ent=el('section',{class:'mt-lg'});
-  ent.append(
-    el('div',{class:'block-head'},
-      el('div',null, el('div',{class:'bh-t'},'받을 수 있는 휴가'),
-        el('p',{class:'block-note'},'토글로 켜고 끄고, 일수는 바로 고쳐 써요. ‘월 적립’은 복무기간으로 자동 계산돼요.')),
-      el('button',{class:'btn sm', onclick:addEnt},'＋ 종류 추가')),
+  // 복무 진행률
+  root.append(progressBlock());
+
+  // 사용한 휴가 입력 (제일 편한 방식)
+  const usedBox=el('section',{class:'used-box'},
+    el('div',{class:'col'}, el('div',{class:'bh-t'},'사용한 휴가'),
+      el('p',{class:'block-note'},'지금까지 다녀온 휴가 일수를 적어주세요. 잔여는 자동으로 계산돼요.')),
+    el('div',{class:'stepper-wrap'},
+      el('div',{class:'stepper'},
+        el('button',{'aria-label':'감소', onclick:()=>bumpUsed(-1)},'−'),
+        el('input',{type:'number', min:'0', step:'1', id:'used-input', value:used, onchange:ev=>{ S.used=Math.max(0,Number(ev.target.value)||0); save(); renderLeave(); }}),
+        el('button',{'aria-label':'증가', onclick:()=>bumpUsed(1)},'＋')),
+      el('span',{class:'su'},'일'))
   );
+  if(S.entries.length){ const sum=S.entries.reduce((s,e)=>s+daysInclusive(e.start,e.end),0);
+    usedBox.append(el('button',{class:'pull-link', onclick:()=>{ S.used=sum; save(); renderLeave(); }}, `달력 일정 합계(${sum}일)로 맞추기`)); }
+  root.append(usedBox);
+
+  // 받을 수 있는 휴가
+  const ent=el('section',{class:'mt-lg'});
+  ent.append(el('div',{class:'block-head'},
+    el('div',null, el('div',{class:'bh-t'},'받을 수 있는 휴가'),
+      el('p',{class:'block-note'},'토글로 켜고 끄고, 일수는 바로 고쳐 써요. ‘월 적립’은 일수와 개월 수를 직접 정할 수 있어요.')),
+    el('button',{class:'btn sm', onclick:addEnt},'＋ 종류 추가')));
   const list=el('div',{class:'mt'}); S.entitlements.forEach(e=>list.append(entRow(e))); ent.append(list);
   root.append(ent);
-
-  // leave records (editorial list)
-  const f=S.ui.lfilter||'all';
-  let rows=[...S.leaves]; if(f!=='all') rows=rows.filter(l=>l.status===f);
-  rows.sort((a,b)=> a.start<b.start?1:-1);
-  const today=todayISO();
-  const nextPlanned=S.leaves.filter(l=>l.status==='planned'&&l.end>=today).sort((a,b)=>a.start<b.start?-1:1)[0];
-
-  const lv=el('section',{class:'mt-lg'});
-  lv.append(
-    el('div',{class:'block-head'},
-      el('div',null, el('div',{class:'bh-t'},'휴가 기록'),
-        el('div',{class:'lfilter mt', style:'margin-top:10px'},
-          fbtn('전체','all',f), fbtn('다녀옴','used',f), fbtn('예정','planned',f))),
-      el('div',{class:'leave-cta'},
-        el('button',{class:'btn sm', onclick:()=>openLeaveEditor(null,'used')},'＋ 다녀온 휴가'),
-        el('button',{class:'btn sm fill', onclick:()=>openLeaveEditor(null,'planned')},'＋ 예정 휴가'))
-    )
-  );
-  const elist=el('div',{class:'elist mt'});
-  if(!rows.length) elist.append(el('div',{class:'empty-note'}, f==='all'?'아직 기록이 없어요. 다녀온 휴가나 예정 휴가를 적어보세요.':'해당하는 기록이 없어요.'));
-  rows.forEach(l=>elist.append(leaveRow(l, nextPlanned&&nextPlanned.id===l.id)));
-  lv.append(elist);
-  root.append(lv);
 }
+function bumpUsed(n){ S.used=Math.max(0,(Number(S.used)||0)+n); save(); renderLeave(); }
 
 function stat(label,val,sub,big){
-  return el('div',{class:'stat'+(big?' big':'')},
-    el('div',{class:'stat-l'},label),
+  return el('div',{class:'stat'+(big?' big':'')}, el('div',{class:'stat-l'},label),
     el('div',{class:'stat-n'}, el('span',{class:'v tnum'},String(val)), el('span',{class:'u'},'일')),
     el('div',{class:'stat-s'},sub));
 }
-function fbtn(label,val,cur){ return el('button',{'aria-pressed':String(cur===val), onclick:()=>{ S.ui.lfilter=val; save(); renderLeave(); }}, label); }
+
+function progressBlock(){
+  const tot=serviceDays(), d=dday();
+  if(tot==null || d==null){
+    return el('div',{class:'progress empty', onclick:openProfile},
+      el('span',{class:'label'},'복무 진행률'),
+      el('p',{class:'block-note', style:'margin:6px 0 0'},'입대일·전역일을 모두 넣으면 진행률과 남은 복무일수가 표시돼요. 눌러서 입력 →'));
+  }
+  const pct=servePct(), served=servedDays();
+  const left = d>0?`남은 복무 ${d}일`:d===0?'오늘 전역!':'전역 완료';
+  return el('div',{class:'progress'},
+    el('div',{class:'row between center'},
+      el('span',{class:'label'},'복무 진행률'),
+      el('span',{class:'p-pct'}, pct+'%')),
+    el('div',{class:'p-track'}, el('div',{class:'p-fill', style:`width:${pct}%`})),
+    el('div',{class:'p-meta'},
+      el('span',null, `입대 ${fmtDot(S.profile.enlist)}`),
+      el('span',{class:'p-mid'}, `${left} · 복무 ${served}일째 / 총 ${tot}일`),
+      el('span',null, `전역 ${fmtDot(S.profile.discharge)}`))
+  );
+}
 
 function entRow(e){
   const row=el('div',{class:'ent-row'+(e.on?'':' off')});
   const tog=el('label',{class:'toggle'}, el('input',{type:'checkbox', ...(e.on?{checked:'checked'}:{}), onchange:ev=>{ e.on=ev.target.checked; save(); renderLeave(); }}), el('span',{class:'track'}));
   const name=el('input',{type:'text', class:'ent-name', value:e.name, onchange:ev=>{ e.name=ev.target.value; save(); }});
-  const cat=el('select',{class:'ent-cat', onchange:ev=>{ e.cat=ev.target.value; save(); }}, ...CAT_LIST.map(c=>el('option',{value:c, ...(e.cat===c?{selected:'selected'}:{})},c)));
   let amt;
   if(e.type==='monthly'){
     amt=el('div',{class:'ent-amt'},
-      el('input',{type:'number', min:'0', step:'0.5', class:'ent-num', value:e.perMonth, onchange:ev=>{ e.perMonth=Number(ev.target.value)||0; save(); renderLeave(); }}),
-      el('span',{class:'ent-unit'},'/월'),
-      el('span',{class:'ent-accr'}, '= '+entDays(e,false)+'일'));
+      el('input',{type:'number', min:'0', step:'0.5', class:'ent-num', value:e.perMonth, title:'월 적립 일수', onchange:ev=>{ e.perMonth=Number(ev.target.value)||0; save(); renderLeave(); }}),
+      el('span',{class:'ent-unit'},'일/월 ×'),
+      el('input',{type:'number', min:'0', step:'1', class:'ent-num', value:effMonths(e), title:'받는 개월 수', onchange:ev=>{ e.months=Math.max(0,Number(ev.target.value)||0); save(); renderLeave(); }}),
+      el('span',{class:'ent-unit'},'개월'),
+      el('span',{class:'ent-accr'}, '= '+entDays(e)+'일'));
   } else {
     amt=el('div',{class:'ent-amt'}, el('input',{type:'number', min:'0', step:'1', class:'ent-num', value:e.days, onchange:ev=>{ e.days=Number(ev.target.value)||0; save(); renderLeave(); }}), el('span',{class:'ent-unit'},'일'));
   }
   const del=el('button',{class:'icon-btn', title:'삭제', onclick:()=>{ if(confirm(`'${e.name}' 삭제할까요?`)){ S.entitlements=S.entitlements.filter(x=>x.id!==e.id); save(); renderLeave(); } }},'✕');
-  row.append(tog,name,cat,amt,del); return row;
+  row.append(tog,name,amt,del); return row;
 }
-function addEnt(){ S.entitlements.push({id:uid(),name:'새 휴가',type:'fixed',days:1,on:true,cat:'기타'}); save(); renderLeave();
+function addEnt(){ S.entitlements.push({id:uid(),name:'새 휴가',type:'fixed',days:1,on:true}); save(); renderLeave();
   setTimeout(()=>{ const ins=$$('.ent-name'); const last=ins[ins.length-1]; last&&last.focus(); last&&last.select(); },30); }
 
-function leaveRow(l, isNext){
-  const days=daysInclusive(l.start,l.end), planned=l.status==='planned';
-  const row=el('div',{class:'erow'+(isNext?' mark':'')+(planned&&!isNext?'':'')});
-  row.append(
-    sealEl(l.start, planned?'':'ink'),
-    el('div',{class:'ebody'},
-      el('div',{class:'etitle'}, l.label||catName(l.cat)),
-      el('div',{class:'esub'}, l.cat + (l.note?(' · '+l.note):'')),
-      el('div',{class:'emeta'}, `${fmtShort(l.start)} – ${fmtShort(l.end)} · ${days}일`)),
-    el('div',{class:'eright'},
-      el('span',{class:'chip '+(planned?'seal':'hi')}, planned?'예정':'다녀옴'),
-      el('button',{class:'icon-btn', title:'수정', onclick:()=>openLeaveEditor(l)},'✎'),
-      el('button',{class:'icon-btn', title:'삭제', onclick:()=>{ S.leaves=S.leaves.filter(x=>x.id!==l.id); save(); renderLeave(); renderCalendar(); }},'✕'))
-  );
-  return row;
-}
-function catName(c){ return c||'휴가'; }
-
-/* ---------- leave editor (modal) --------------------------- */
-function openLeaveEditor(l, status){
-  const editing = !!(l && S.leaves.some(x=>x.id===l.id));
-  const data = l ? {...l} : { id:uid(), label:'', cat:'연가', start:todayISO(), end:todayISO(), status:status||'used', note:'' };
-  const body=el('div',{class:'col gap-sm'},
-    field('이름', el('input',{type:'text', id:'le-label', class:'serif-in', value:data.label||'', placeholder:'예: 정기휴가, 포상휴가'})),
-    el('div',{class:'row gap-sm'},
-      field('종류', el('select',{id:'le-cat'}, ...CAT_LIST.map(c=>el('option',{value:c,...(data.cat===c?{selected:'selected'}:{})},c)))),
-      field('상태', el('select',{id:'le-status'},
-        el('option',{value:'used',...(data.status==='used'?{selected:'selected'}:{})},'다녀옴 (사용)'),
-        el('option',{value:'planned',...(data.status==='planned'?{selected:'selected'}:{})},'예정 (계획)')))),
-    el('div',{class:'row gap-sm'},
-      field('시작', el('input',{type:'date', id:'le-start', value:data.start})),
-      field('복귀(마지막 날)', el('input',{type:'date', id:'le-end', value:data.end}))),
-    field('메모 (선택)', el('input',{type:'text', id:'le-note', value:data.note||'', placeholder:'장소·동행 등'})),
-    el('p',{class:'label', id:'le-count', style:'margin-top:4px'},'')
-  );
-  const upd=()=>{ const s=$('#le-start').value,e=$('#le-end').value; $('#le-count').textContent=(s&&e)?`총 ${daysInclusive(s,e)}일`:''; };
-  modal(editing?'휴가 수정':(data.status==='planned'?'예정 휴가 추가':'다녀온 휴가 추가'), body, [
-    {label:'저장', cls:'btn fill', on:()=>{
-      data.label=$('#le-label').value.trim(); data.cat=$('#le-cat').value; data.status=$('#le-status').value;
-      data.start=$('#le-start').value; data.end=$('#le-end').value; data.note=$('#le-note').value.trim();
-      if(!data.start||!data.end){ alert('날짜를 입력해 주세요'); return false; }
-      if(data.end<data.start){ const t=data.start; data.start=data.end; data.end=t; }
-      if(editing){ const t=S.leaves.find(x=>x.id===l.id); Object.assign(t,data); } else { S.leaves.push(data); }
-      save(); renderLeave(); renderCalendar(); return true; }}
-  ]);
-  setTimeout(()=>{ $('#le-start').addEventListener('change',upd); $('#le-end').addEventListener('change',upd); upd(); $('#le-label').focus(); },10);
-}
-function field(label,input){ return el('label',{class:'field'}, el('span',{class:'field-label'},label), input); }
-
 /* =====================================================================
-   TAB 2 — 달력
+   TAB 2 — 달력 (기간 + 내용)
    ===================================================================== */
 function renderCalendar(){
   const root=$('#tab-cal'); if(!root) return;
@@ -236,6 +207,7 @@ function renderCalendar(){
   const head=el('div',{class:'cal-head'},
     el('div',{class:'cal-title'}, el('span',{class:'cm'}, `${p2(m)}`), el('span',{class:'cy'}, `${MON[m-1]} ${y}`)),
     el('div',{class:'cal-nav'},
+      el('button',{class:'btn sm fill', onclick:()=>openEntry()},'＋ 일정'),
       el('button',{class:'nav-arrow', onclick:()=>shiftMonth(-1),'aria-label':'이전 달'},'‹'),
       el('button',{class:'btn sm ghost', onclick:()=>{ S.ui.month=isoMonth(new Date()); save(); renderCalendar(); }},'오늘'),
       el('button',{class:'nav-arrow', onclick:()=>shiftMonth(1),'aria-label':'다음 달'},'›')));
@@ -243,49 +215,57 @@ function renderCalendar(){
   const grid=el('div',{class:'cal-grid'});
   WD.forEach((w,i)=>grid.append(el('div',{class:'cal-dow'+(i===0?' sun':i===6?' sat':'')}, w)));
   for(let i=0;i<startDow;i++) grid.append(el('div',{class:'cal-cell blank'}));
-  for(let d=1; d<=dim; d++){
-    const iso=`${y}-${p2(m)}-${p2(d)}`, dow=new Date(y,m-1,d).getDay();
+  for(let dnum=1; dnum<=dim; dnum++){
+    const iso=`${y}-${p2(m)}-${p2(dnum)}`, dow=new Date(y,m-1,dnum).getDay();
     const cell=el('div',{class:'cal-cell'+(dow===0?' sun':dow===6?' sat':''), 'data-date':iso, role:'button', tabindex:'0'});
     if(iso===today) cell.classList.add('today');
     if(S.profile.discharge===iso) cell.classList.add('discharge');
     if(S.ui.xout&&S.profile.enlist&&iso<today&&iso>=S.profile.enlist) cell.classList.add('xout');
-    cell.append(el('div',null, el('span',{class:'cell-num'}, String(d)), iso===today?el('span',{class:'today-tag'},'오늘'):null,
+    cell.append(el('div',null, el('span',{class:'cell-num'}, String(dnum)),
+      iso===today?el('span',{class:'today-tag'},'오늘'):null,
       S.profile.discharge===iso?el('span',{class:'dis-tag'},'전역'):null));
-    const covers=S.leaves.filter(l=>iso>=l.start&&iso<=l.end);
-    covers.slice(0,2).forEach(l=>{ const isStart=iso===l.start||dow===0;
-      cell.append(el('div',{class:'cell-band'+(l.status==='planned'?' planned':'')}, isStart?el('span',{class:'band-lbl'}, l.label||l.cat):'')); });
-    if(S.plans[iso]) cell.append(el('div',{class:'cell-plan'}, S.plans[iso]));
-    cell.addEventListener('click',()=>openDay(iso));
-    cell.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openDay(iso); } });
+    const covers=S.entries.filter(en=>iso>=en.start&&iso<=en.end);
+    covers.slice(0,3).forEach(en=>{ const isStart=iso===en.start||dow===0;
+      const band=el('div',{class:'cell-band', onclick:ev=>{ ev.stopPropagation(); openEntry(en); }}, isStart?el('span',{class:'band-lbl'}, en.text):'');
+      cell.append(band); });
+    cell.addEventListener('click',()=>openEntry({ start:iso, end:iso }));
+    cell.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openEntry({start:iso,end:iso}); } });
     grid.append(cell);
   }
 
   const legend=el('div',{class:'cal-legend'},
-    lg('b-leave','휴가'), lg('b-plan','예정'), lg('b-today','오늘'), lg('b-dis','전역일'),
+    lg('b-leave','일정'), lg('b-today','오늘'), lg('b-dis','전역일'),
     el('label',{class:'toggle', style:'margin-left:auto', title:'지난 날 줄 긋기'},
       el('input',{type:'checkbox', ...(S.ui.xout?{checked:'checked'}:{}), onchange:ev=>{ S.ui.xout=ev.target.checked; save(); renderCalendar(); }}),
       el('span',{class:'track'}), el('span',{class:'lg-item', style:'margin-left:9px'},'전역 카운트다운')));
-
   root.append(el('div',{class:'panel'}, head, grid), legend);
 }
 function lg(cls,label){ return el('span',{class:'lg-item'}, el('i',{class:cls}), label); }
 function shiftMonth(n){ const [y,m]=S.ui.month.split('-').map(Number); S.ui.month=isoMonth(new Date(y,m-1+n,1)); save(); renderCalendar(); }
 
-function openDay(iso){
-  const plan=S.plans[iso]||'', covers=S.leaves.filter(l=>iso>=l.start&&iso<=l.end);
+function openEntry(entry){
+  const editing = !!(entry && entry.id && S.entries.some(x=>x.id===entry.id));
+  const data = entry ? {start:entry.start||todayISO(), end:entry.end||entry.start||todayISO(), text:entry.text||'', id:entry.id} : {start:todayISO(),end:todayISO(),text:''};
   const body=el('div',{class:'col gap-sm'},
-    el('div',{class:'row center gap-sm'}, sealEl(iso,'ink'), el('div',{class:'esub serif italic', style:'font-size:1.1rem'}, fmtKo(iso))),
-    field('이 날 메모 / 계획', el('textarea',{id:'day-plan', rows:'3', placeholder:'예: 면회, 진료, 사역, 전투휴무…'}, plan)),
-    covers.length? el('div',{class:'col gap-sm'}, el('div',{class:'label'},'이 날의 휴가'),
-      ...covers.map(l=>el('div',{class:'row center gap-sm'}, el('span',{class:'chip '+(l.status==='planned'?'seal':'hi')}, l.label||l.cat), el('span',{class:'emeta'}, `${fmtShort(l.start)}–${fmtShort(l.end)}`)))) : null
+    field('내용', el('input',{type:'text', id:'en-text', class:'serif-in', value:data.text, placeholder:'예: 정기휴가, 면회, 외박, 진료…'})),
+    el('div',{class:'row gap-sm'},
+      field('시작', el('input',{type:'date', id:'en-start', value:data.start})),
+      field('종료', el('input',{type:'date', id:'en-end', value:data.end}))),
+    el('p',{class:'label', id:'en-count', style:'margin-top:4px'},'')
   );
-  modal(fmtKo(iso)+' 메모', body, [
-    {label:'＋ 이 날부터 휴가', cls:'btn', on:()=>{ savePlan(iso); closeModal(); openLeaveEditor({id:uid(),label:'',cat:'연가',start:iso,end:iso,status:'planned',note:''}); return false; }},
-    {label:'저장', cls:'btn fill', on:()=>{ savePlan(iso); renderCalendar(); return true; }}
-  ]);
-  setTimeout(()=>$('#day-plan')&&$('#day-plan').focus(),10);
+  const upd=()=>{ const s=$('#en-start').value,e=$('#en-end').value; $('#en-count').textContent=(s&&e)?`${daysInclusive(s,e)}일`:''; };
+  const actions=[{label:'저장', cls:'btn fill', on:()=>{
+    const text=$('#en-text').value.trim(), s=$('#en-start').value; let e=$('#en-end').value||s;
+    if(!text){ alert('내용을 적어주세요'); return false; } if(!s){ alert('날짜를 정해주세요'); return false; }
+    if(e<s){ const t=s; e=s; data.start=t; }
+    const obj={ start:s, end:e<s?s:e, text };
+    if(editing){ const t=S.entries.find(x=>x.id===data.id); Object.assign(t,obj); } else { obj.id=uid(); S.entries.push(obj); }
+    save(); renderCalendar(); if($('#tab-leave') && !$('#tab-leave').classList.contains('hidden')) renderLeave(); return true; }}];
+  if(editing) actions.unshift({label:'삭제', cls:'btn ghost', on:()=>{ S.entries=S.entries.filter(x=>x.id!==data.id); save(); renderCalendar(); return true; }});
+  modal(editing?'일정 수정':'일정 추가', body, actions);
+  setTimeout(()=>{ $('#en-start').addEventListener('change',upd); $('#en-end').addEventListener('change',upd); upd(); $('#en-text').focus(); },10);
 }
-function savePlan(iso){ const t=$('#day-plan').value.trim(); if(t) S.plans[iso]=t; else delete S.plans[iso]; save(); }
+function field(label,input){ return el('label',{class:'field'}, el('span',{class:'field-label'},label), input); }
 
 /* =====================================================================
    TAB 3 — 급식
@@ -302,7 +282,7 @@ function renderMeals(){
 
   const nav=el('div',{class:'meal-nav'},
     el('button',{class:'nav-arrow', onclick:()=>shiftMeal(-1),'aria-label':'이전 날'},'‹'),
-    el('div',{class:'mn-c'}, el('span',{class:'chip ink'},'수방사 급식'), el('span',{class:'mn-date'}, fmtKo(date))),
+    el('div',{class:'mn-c'}, el('span',{class:'chip ink'},'오늘의 급식'), el('span',{class:'mn-date'}, fmtKo(date))),
     el('button',{class:'nav-arrow', onclick:()=>shiftMeal(1),'aria-label':'다음 날'},'›'));
 
   const meal=S.meals[date]||{b:'',l:'',d:''};
@@ -325,11 +305,12 @@ function shiftMeal(n){ S.ui.mealDate=isoDate(addDays(parseISO(S.ui.mealDate||tod
 function openProfile(){
   const p=S.profile;
   const body=el('div',{class:'col gap-sm'},
-    el('p',{class:'block-note', style:'margin:0 0 6px'},'입대일·전역일을 넣으면 D-day · 월 적립 휴가 · 카운트다운 달력이 자동으로 채워져요.'),
-    el('div',{class:'row gap-sm'}, field('이름 (선택)', el('input',{type:'text', id:'pf-name', value:p.name, placeholder:'홍길동'})), field('부대 (선택)', el('input',{type:'text', id:'pf-unit', value:p.unit, placeholder:'수방사 ○○대대'}))),
-    el('div',{class:'row gap-sm'}, field('입대일', el('input',{type:'date', id:'pf-enlist', value:p.enlist})), field('전역일', el('input',{type:'date', id:'pf-discharge', value:p.discharge}))));
+    el('p',{class:'block-note', style:'margin:0 0 6px'},'입대일·전역일을 넣으면 D-day · 복무 진행률 · 월 적립 휴가가 자동으로 채워져요.'),
+    el('div',{class:'row gap-sm'},
+      field('입대일', el('input',{type:'date', id:'pf-enlist', value:p.enlist})),
+      field('전역일', el('input',{type:'date', id:'pf-discharge', value:p.discharge}))));
   modal('복무 정보', body, [
-    {label:'저장', cls:'btn fill', on:()=>{ S.profile={ name:$('#pf-name').value.trim(), unit:$('#pf-unit').value.trim(), enlist:$('#pf-enlist').value, discharge:$('#pf-discharge').value };
+    {label:'저장', cls:'btn fill', on:()=>{ S.profile={ enlist:$('#pf-enlist').value, discharge:$('#pf-discharge').value };
       save(); renderHeader(); renderLeave(); renderCalendar(); return true; }}
   ]);
 }
